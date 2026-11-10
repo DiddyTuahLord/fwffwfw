@@ -689,6 +689,23 @@ private:
         return { work.right - size.cx - margin, work.bottom - size.cy - margin };
     }
 
+    // Called while dragging: sticks the window to work-area edges when it gets close.
+    void SnapToWorkArea(RECT* rc) const {
+        MONITORINFO mi{};
+        mi.cbSize = sizeof(mi);
+        if (!GetMonitorInfoW(MonitorFromRect(rc, MONITOR_DEFAULTTONEAREST), &mi)) return;
+        const RECT& wa = mi.rcWork;
+        const LONG snap = MulDiv(12, static_cast<int>(m_dpi), 96);
+        const LONG w = rc->right - rc->left;
+        const LONG h = rc->bottom - rc->top;
+        if (std::abs(rc->left - wa.left) < snap) rc->left = wa.left;
+        else if (std::abs(rc->right - wa.right) < snap) rc->left = wa.right - w;
+        if (std::abs(rc->top - wa.top) < snap) rc->top = wa.top;
+        else if (std::abs(rc->bottom - wa.bottom) < snap) rc->top = wa.bottom - h;
+        rc->right = rc->left + w;
+        rc->bottom = rc->top + h;
+    }
+
     void SavePosition() {
         RECT rc{};
         if (m_hwnd != nullptr && GetWindowRect(m_hwnd, &rc)) {
@@ -981,6 +998,9 @@ private:
         case WM_TIMER:
             OnTimer(wp);
             return 0;
+        case WM_MOVING:
+            SnapToWorkArea(reinterpret_cast<RECT*>(lp));
+            return TRUE;
         case WM_EXITSIZEMOVE:
             SavePosition();
             return 0;
