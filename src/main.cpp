@@ -3,7 +3,7 @@
 
 DECLARE_COMPONENT_VERSION(
     "Popout Mini Player",
-    "1.0.0",
+    "1.0.1",
     "A floating, see-through mini player with the track title, artist, a seekable progress bar "
     "and previous / play-pause / next buttons.\n"
     "\n"
