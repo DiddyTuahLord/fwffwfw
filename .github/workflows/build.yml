@@ -1,0 +1,58 @@
+name: Build component
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FB2K_SDK_VERSION: "2026-10-01"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Get the foobar2000 SDK
+        shell: pwsh
+        run: ./scripts/get-sdk.ps1 -Version $env:FB2K_SDK_VERSION
+
+      - name: Find Visual Studio
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'Visual Studio with the C++ build tools was not found on this runner.' }
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if (-not $msbuild) { throw 'MSBuild was not found on this runner.' }
+          # The SDK projects ask for the VS 2022 toolset (v143); use the newest one if that is missing.
+          $names = @(Get-ChildItem -Path (Join-Path $vs 'MSBuild\Microsoft\VC\*\Platforms\x64\PlatformToolsets\*') -Directory -ErrorAction SilentlyContinue |
+            ForEach-Object Name | Where-Object { $_ -match '^v\d+$' } | Sort-Object -Unique)
+          if ($names -contains 'v143') { $toolset = 'v143' }
+          elseif ($names.Count -gt 0) { $toolset = $names | Sort-Object { [int]$_.Substring(1) } | Select-Object -Last 1 }
+          else { $toolset = 'v143' }
+          Write-Host "MSBuild: $msbuild"
+          Write-Host "Toolsets found: $($names -join ', '). Using $toolset."
+          "MSBUILD=$msbuild" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PLATFORM_TOOLSET=$toolset" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build 64-bit and 32-bit
+        shell: pwsh
+        run: |
+          foreach ($platform in 'x64', 'x86') {
+            & $env:MSBUILD foo_popout_player.sln -m -nologo -p:Configuration=Release "-p:Platform=$platform" "-p:PlatformToolset=$env:PLATFORM_TOOLSET"
+            if ($LASTEXITCODE -ne 0) { throw "The $platform build failed." }
+          }
+
+      - name: Package
+        shell: pwsh
+        run: ./scripts/package.ps1
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: foo_popout_player
+          path: build/foo_popout_player.fb2k-component
+          if-no-files-found: error
